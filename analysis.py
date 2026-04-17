@@ -6,7 +6,7 @@ import subprocess
 import os
 from metrics import *
 from openai import OpenAI
-client = OpenAI(api_key="키값")
+client = OpenAI(api_key="키 값")
 
 
 
@@ -92,16 +92,38 @@ def convert_to_h264(input_path, output_path):
 
     subprocess.run(command, check=True)
 
-def crop_and_resize(frame, points, output_size=(480, 640), margin=100):
+def expand_box(x1, y1, x2, y2, frame_w, frame_h, pad=40):
+    x1 = max(0, x1 - pad)
+    y1 = max(0, y1 - pad)
+    x2 = min(frame_w, x2 + pad)
+    y2 = min(frame_h, y2 + pad)
+    return int(x1), int(y1), int(x2), int(y2)
+
+def get_box_from_points(points, frame_w, frame_h, pad=40, min_size=140):
+    xs = [int(p[0]) for p in points]
+    ys = [int(p[1]) for p in points]
+
+    cx = int(sum(xs) / len(xs))
+    cy = int(sum(ys) / len(ys))
+
+    w = max(max(xs) - min(xs), min_size)
+    h = max(max(ys) - min(ys), min_size)
+
+    x1 = cx - w // 2
+    y1 = cy - h // 2
+    x2 = cx + w // 2
+    y2 = cy + h // 2
+
+    return expand_box(x1, y1, x2, y2, frame_w, frame_h, pad=pad)
+
+def crop_box_and_resize(frame, box, output_size=(480, 640)):
     h, w = frame.shape[:2]
+    x1, y1, x2, y2 = box
 
-    xs = [p[0] for p in points]
-    ys = [p[1] for p in points]
-
-    x1 = max(0, min(xs) - margin)
-    y1 = max(0, min(ys) - margin)
-    x2 = min(w, max(xs) + margin)
-    y2 = min(h, max(ys) + margin)
+    x1 = max(0, min(w - 1, x1))
+    y1 = max(0, min(h - 1, y1))
+    x2 = max(x1 + 1, min(w, x2))
+    y2 = max(y1 + 1, min(h, y2))
 
     crop = frame[y1:y2, x1:x2]
 
@@ -109,6 +131,17 @@ def crop_and_resize(frame, points, output_size=(480, 640), margin=100):
         return cv2.resize(frame, output_size)
 
     return cv2.resize(crop, output_size)
+
+def get_part_boxes(frame, shoulder, elbow, wrist, hip, knee, ankle):
+    h, w = frame.shape[:2]
+
+    return {
+        "arm": get_box_from_points([shoulder, elbow, wrist], w, h, pad=50, min_size=180),
+        "knee": get_box_from_points([hip, knee, ankle], w, h, pad=60, min_size=220),
+        "lean": get_box_from_points([shoulder, hip, knee], w, h, pad=70, min_size=260),
+        "vo": get_box_from_points([shoulder, hip, knee, ankle], w, h, pad=80, min_size=320),
+        "thigh": get_box_from_points([hip, knee], w, h, pad=60, min_size=180),
+    }
 
 
 def run_analysis(source, SPEED):
@@ -340,56 +373,13 @@ def run_analysis(source, SPEED):
                     thigh_color,
                     2)
 
-                # ================= 하이라이트 저장 =================
-                if not arm_ok:
-                    arm_crop = crop_and_resize(
-                        frame,
-                        [shoulder, elbow, wrist, hip],
-                        output_size=highlight_size,
-                        margin=100
-                    )
-                    arm_writer.write(arm_crop)
-                    arm_count += 1
+                part_boxes = get_part_boxes(frame, shoulder, elbow, wrist, hip, knee, ankle)
 
-                if not knee_ok:
-                    knee_crop = crop_and_resize(
-                        frame,
-                        [hip, knee, ankle],
-                        output_size=highlight_size,
-                        margin=120
-                    )
-                    knee_writer.write(knee_crop)
-                    knee_count += 1
-
-                if lean > 10:
-                    lean_crop = crop_and_resize(
-                        frame,
-                        [shoulder, hip, knee],
-                        output_size=highlight_size,
-                        margin=120
-                    )
-                    lean_writer.write(lean_crop)
-                    lean_count += 1
-
-                if not vo_ok:
-                    vo_crop = crop_and_resize(
-                        frame,
-                        [shoulder, hip, knee, ankle],
-                        output_size=highlight_size,
-                        margin=140
-                    )
-                    vo_writer.write(vo_crop)
-                    vo_count += 1
-
-                if not thigh_ok:
-                    thigh_crop = crop_and_resize(
-                        frame,
-                        [hip, knee, ankle],
-                        output_size=highlight_size,
-                        margin=120
-                    )
-                    thigh_writer.write(thigh_crop)
-                    thigh_count += 1
+                arm_writer.write(crop_box_and_resize(frame, part_boxes["arm"], highlight_size))
+                knee_writer.write(crop_box_and_resize(frame, part_boxes["knee"], highlight_size))
+                lean_writer.write(crop_box_and_resize(frame, part_boxes["lean"], highlight_size))
+                vo_writer.write(crop_box_and_resize(frame, part_boxes["vo"], highlight_size))
+                thigh_writer.write(crop_box_and_resize(frame, part_boxes["thigh"], highlight_size))
 
                 knee_list.append(knee_angle)
                 lean_list.append(lean)
@@ -443,8 +433,8 @@ def run_analysis(source, SPEED):
         cv2.destroyWindow(title)
 
     # (기존 코드 끝)
-    if max_lean_error > 0: play_slow(best_clip, best_box, "Worst Lean")
-    if max_knee_error > 0: play_slow(best_knee_clip, best_knee_box, "Worst Knee")
+    #if max_lean_error > 0: play_slow(best_clip, best_box, "Worst Lean")
+    #if max_knee_error > 0: play_slow(best_knee_clip, best_knee_box, "Worst Knee")
 
     # =========================
     # 평균 계산
