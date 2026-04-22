@@ -6,7 +6,7 @@ import subprocess
 import os
 from metrics import *
 from openai import OpenAI
-client = OpenAI(api_key="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")
+client = OpenAI(api_key="키 값")
 
 
 
@@ -16,12 +16,18 @@ def generate_all_feedback(
     knee_min, knee_max, vo_min, vo_max, thigh_min, thigh_max
 ):
     prompt = f"""
-너는 러닝 자세를 분석해주는 전문 코치야.
+너는 러닝 자세를 분석해주는 전문 코치이자 스포츠 손상 예방 전문가야.
 
 다음 분석 결과를 바탕으로
 1) 전체 총평(overallFeedback)
 2) 관절별 평가(parts.arm, parts.knee, parts.lean, parts.vo, parts.thigh)
-를 한 번에 만들어줘.
+
+를 JSON으로 만들어줘.
+
+[판정 기준]
+- good: 평균값이 권장 범위 안에 들어온 경우
+- bad: 평균값이 권장 범위를 벗어난 경우
+- 반드시 이 기준만 사용해서 판단해
 
 [상태]
 - 팔 스윙: {arm}
@@ -47,31 +53,55 @@ def generate_all_feedback(
 작성 규칙:
 - 한국어로 작성
 - overallFeedback는 3~5문장
-- 자세가 좋으면 좋은 점과 유지 시 이점을 설명
-- 자세가 나쁘면 문제점, 부상 위험, 교정 시 이점을 설명
-- parts의 각 evaluation은 2문장 이내
-- 코치처럼 자연스럽고 이해하기 쉽게 작성
+- 각 관절은 반드시 아래 규칙을 따를 것
+  1) good이면:
+     - evaluation: 현재 상태를 1~2문장으로 요약
+     - expectedBenefit: 이 자세를 유지했을 때 기대할 수 있는 효과를 1문장
+     - injuryRisk: ""
+  2) bad이면:
+     - evaluation: 어떤 점이 범위를 벗어났는지 1~2문장으로 설명
+     - injuryRisk: 잘못된 자세가 반복될 때 생길 수 있는 대표적 부상/통증 위험을 1문장
+     - expectedBenefit: 교정했을 때 얻을 수 있는 효과를 1문장
+- 부상명은 과장하지 말고 러닝 자세와 관련된 흔한 위험만 설명
+- 자연스럽고 이해하기 쉬운 코치 말투로 작성
 - 반드시 아래 JSON 형식으로만 답변해
 
 JSON 형식:
 {{
   "overallFeedback": "문장",
   "parts": {{
-    "arm": {{"evaluation": "문장"}},
-    "knee": {{"evaluation": "문장"}},
-    "lean": {{"evaluation": "문장"}},
-    "vo": {{"evaluation": "문장"}},
-    "thigh": {{"evaluation": "문장"}}
+    "arm": {{
+      "evaluation": "문장",
+      "injuryRisk": "문장 또는 빈 문자열",
+      "expectedBenefit": "문장"
+    }},
+    "knee": {{
+      "evaluation": "문장",
+      "injuryRisk": "문장 또는 빈 문자열",
+      "expectedBenefit": "문장"
+    }},
+    "lean": {{
+      "evaluation": "문장",
+      "injuryRisk": "문장 또는 빈 문자열",
+      "expectedBenefit": "문장"
+    }},
+    "vo": {{
+      "evaluation": "문장",
+      "injuryRisk": "문장 또는 빈 문자열",
+      "expectedBenefit": "문장"
+    }},
+    "thigh": {{
+      "evaluation": "문장",
+      "injuryRisk": "문장 또는 빈 문자열",
+      "expectedBenefit": "문장"
+    }}
   }}
 }}
 """
-
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         response_format={"type": "json_object"},
-        messages=[
-            {"role": "user", "content": prompt}
-        ]
+        messages=[{"role": "user", "content": prompt}]
     )
 
     import json
@@ -590,26 +620,35 @@ def run_analysis(source, SPEED):
         "details": {
             "overallFeedback": feedback_data["overallFeedback"],
             "fullVideoLink": full_video_url,
-
             "parts": {
                 "arm": {
                     "evaluation": feedback_data["parts"]["arm"]["evaluation"],
+                    "injuryRisk": feedback_data["parts"]["arm"]["injuryRisk"],
+                    "expectedBenefit": feedback_data["parts"]["arm"]["expectedBenefit"],
                     "videoLink": arm_video_url
                 },
                 "knee": {
                     "evaluation": feedback_data["parts"]["knee"]["evaluation"],
+                    "injuryRisk": feedback_data["parts"]["knee"]["injuryRisk"],
+                    "expectedBenefit": feedback_data["parts"]["knee"]["expectedBenefit"],
                     "videoLink": knee_video_url
                 },
                 "lean": {
                     "evaluation": feedback_data["parts"]["lean"]["evaluation"],
+                    "injuryRisk": feedback_data["parts"]["lean"]["injuryRisk"],
+                    "expectedBenefit": feedback_data["parts"]["lean"]["expectedBenefit"],
                     "videoLink": lean_video_url
                 },
                 "vo": {
                     "evaluation": feedback_data["parts"]["vo"]["evaluation"],
+                    "injuryRisk": feedback_data["parts"]["vo"]["injuryRisk"],
+                    "expectedBenefit": feedback_data["parts"]["vo"]["expectedBenefit"],
                     "videoLink": vo_video_url
                 },
                 "thigh": {
                     "evaluation": feedback_data["parts"]["thigh"]["evaluation"],
+                    "injuryRisk": feedback_data["parts"]["thigh"]["injuryRisk"],
+                    "expectedBenefit": feedback_data["parts"]["thigh"]["expectedBenefit"],
                     "videoLink": thigh_video_url
                 }
             }
@@ -617,4 +656,3 @@ def run_analysis(source, SPEED):
     }
 
     return result
-
