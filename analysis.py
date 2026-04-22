@@ -6,7 +6,7 @@ import subprocess
 import os
 from metrics import *
 from openai import OpenAI
-client = OpenAI(api_key="키 값")
+client = OpenAI(api_key="키")
 
 
 
@@ -129,6 +129,28 @@ def expand_box(x1, y1, x2, y2, frame_w, frame_h, pad=40):
     y2 = min(frame_h, y2 + pad)
     return int(x1), int(y1), int(x2), int(y2)
 
+def make_fixed_clip(frames, center_idx, box, output_path, fps=8, duration_sec=4, output_size=(480, 640)):
+    if center_idx is None or box is None or not frames:
+        return
+
+    total_needed = int(fps * duration_sec)   # 예: 8fps * 4초 = 32프레임
+    half = total_needed // 2
+
+    start = max(0, center_idx - half)
+    end = min(len(frames), start + total_needed)
+
+    # 뒤가 부족하면 앞쪽으로 보정
+    start = max(0, end - total_needed)
+
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(output_path, fourcc, fps, output_size)
+
+    for i in range(start, end):
+        crop = crop_box_and_resize(frames[i], box, output_size)
+        writer.write(crop)
+
+    writer.release()
+
 def get_box_from_points(points, frame_w, frame_h, pad=40, min_size=140):
     xs = [int(p[0]) for p in points]
     ys = [int(p[1]) for p in points]
@@ -212,6 +234,8 @@ def run_analysis(source, SPEED):
     BUFFER_SIZE = 60
     frame_buffer=[]
 
+    all_frames = []
+
     hip_y_buffer = []
     VO_BUFFER_SIZE = BUFFER_SIZE
     vo_value_buffer = []
@@ -220,6 +244,24 @@ def run_analysis(source, SPEED):
     best_clip=[];best_box=None;tail_frames=0;max_lean_error=-1
     best_knee_clip=[];best_knee_box=None;knee_tail_frames=0;max_knee_error=-1
 
+    worst_arm_error = -1
+    worst_knee_error = -1
+    worst_lean_error = -1
+    worst_vo_error = -1
+    worst_thigh_error = -1
+
+    worst_arm_idx = None
+    worst_knee_idx = None
+    worst_lean_idx = None
+    worst_vo_idx = None
+    worst_thigh_idx = None
+
+    worst_arm_box = None
+    worst_knee_box = None
+    worst_lean_box = None
+    worst_vo_box = None
+    worst_thigh_box = None
+
     cap = cv2.VideoCapture(source)
     fps = cap.get(cv2.CAP_PROP_FPS) or 30
     cap.release()
@@ -227,21 +269,10 @@ def run_analysis(source, SPEED):
     highlight_fps = 8
     highlight_size = (480, 640)
 
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-
-    arm_writer = cv2.VideoWriter("arm_highlight_raw.mp4", fourcc, highlight_fps, highlight_size)
-    knee_writer = cv2.VideoWriter("knee_highlight_raw.mp4", fourcc, highlight_fps, highlight_size)
-    lean_writer = cv2.VideoWriter("lean_highlight_raw.mp4", fourcc, highlight_fps, highlight_size)
-    vo_writer = cv2.VideoWriter("vo_highlight_raw.mp4", fourcc, highlight_fps, highlight_size)
-    thigh_writer = cv2.VideoWriter("thigh_highlight_raw.mp4", fourcc, highlight_fps, highlight_size)
     full_writer = None
 
     print("fps:", fps, "highlight_fps:", highlight_fps, "highlight_size:", highlight_size)
-    print("arm_writer:", arm_writer.isOpened())
-    print("knee_writer:", knee_writer.isOpened())
-    print("lean_writer:", lean_writer.isOpened())
-    print("vo_writer:", vo_writer.isOpened())
-    print("thigh_writer:", thigh_writer.isOpened())
+
 
     results=model(source,stream=True)
 
@@ -251,6 +282,8 @@ def run_analysis(source, SPEED):
 
         if frame is None or frame.size == 0:
             continue
+
+        all_frames.append(frame.copy())
 
         # 🔥 writer 생성 (한 번만)
         if full_writer is None:
@@ -420,11 +453,68 @@ def run_analysis(source, SPEED):
 
                 part_boxes = get_part_boxes(frame, shoulder, elbow, wrist, hip, knee, ankle)
 
-                arm_writer.write(crop_box_and_resize(frame, part_boxes["arm"], highlight_size))
-                knee_writer.write(crop_box_and_resize(frame, part_boxes["knee"], highlight_size))
-                lean_writer.write(crop_box_and_resize(frame, part_boxes["lean"], highlight_size))
-                vo_writer.write(crop_box_and_resize(frame, part_boxes["vo"], highlight_size))
-                thigh_writer.write(crop_box_and_resize(frame, part_boxes["thigh"], highlight_size))
+                current_idx = len(all_frames) - 1
+
+                # arm error
+                if arm_swing_val > 7:
+                    arm_error = arm_swing_val - 7
+                elif arm_swing_val < -10:
+                    arm_error = -10 - arm_swing_val
+                else:
+                    arm_error = 0
+
+                if arm_error > worst_arm_error:
+                    worst_arm_error = arm_error
+                    worst_arm_idx = current_idx
+                    worst_arm_box = part_boxes["arm"]
+
+                # knee error
+                if knee_angle < KNEE_MIN:
+                    knee_error = KNEE_MIN - knee_angle
+                elif knee_angle > KNEE_MAX:
+                    knee_error = knee_angle - KNEE_MAX
+                else:
+                    knee_error = 0
+
+                if knee_error > worst_knee_error:
+                    worst_knee_error = knee_error
+                    worst_knee_idx = current_idx
+                    worst_knee_box = part_boxes["knee"]
+
+                # lean error
+                lean_error = max(0, lean - 10)
+                if lean_error > worst_lean_error:
+                    worst_lean_error = lean_error
+                    worst_lean_idx = current_idx
+                    worst_lean_box = part_boxes["lean"]
+
+                # vo error
+                if vo_avg < VO_MIN:
+                    vo_error = VO_MIN - vo_avg
+                elif vo_avg > VO_MAX:
+                    vo_error = vo_avg - VO_MAX
+                else:
+                    vo_error = 0
+
+                if vo_error > worst_vo_error:
+                    worst_vo_error = vo_error
+                    worst_vo_idx = current_idx
+                    worst_vo_box = part_boxes["vo"]
+
+                # thigh error
+                if knee_lift < THIGH_MIN:
+                    thigh_error = THIGH_MIN - knee_lift
+                elif knee_lift > THIGH_MAX:
+                    thigh_error = knee_lift - THIGH_MAX
+                else:
+                    thigh_error = 0
+
+                if thigh_error > worst_thigh_error:
+                    worst_thigh_error = thigh_error
+                    worst_thigh_idx = current_idx
+                    worst_thigh_box = part_boxes["thigh"]
+
+
 
                 knee_list.append(knee_angle)
                 lean_list.append(lean)
@@ -447,13 +537,19 @@ def run_analysis(source, SPEED):
     print("vo frames:", vo_count)
     print("thigh frames:", thigh_count)
 
-    arm_writer.release()
-    knee_writer.release()
-    lean_writer.release()
-    vo_writer.release()
-    thigh_writer.release()
     if full_writer:
         full_writer.release()
+
+    make_fixed_clip(all_frames, worst_arm_idx, worst_arm_box, "arm_highlight_raw.mp4", fps=highlight_fps,
+                    duration_sec=4, output_size=highlight_size)
+    make_fixed_clip(all_frames, worst_knee_idx, worst_knee_box, "knee_highlight_raw.mp4", fps=highlight_fps,
+                    duration_sec=4, output_size=highlight_size)
+    make_fixed_clip(all_frames, worst_lean_idx, worst_lean_box, "lean_highlight_raw.mp4", fps=highlight_fps,
+                    duration_sec=4, output_size=highlight_size)
+    make_fixed_clip(all_frames, worst_vo_idx, worst_vo_box, "vo_highlight_raw.mp4", fps=highlight_fps, duration_sec=4,
+                    output_size=highlight_size)
+    make_fixed_clip(all_frames, worst_thigh_idx, worst_thigh_box, "thigh_highlight_raw.mp4", fps=highlight_fps,
+                    duration_sec=4, output_size=highlight_size)
 
     convert_to_h264("full_with_skeleton_raw.mp4", "full_with_skeleton.mp4")
     convert_to_h264("arm_highlight_raw.mp4", "arm_highlight.mp4")
