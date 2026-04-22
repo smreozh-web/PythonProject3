@@ -6,7 +6,7 @@ import subprocess
 import os
 from metrics import *
 from openai import OpenAI
-client = OpenAI(api_key="키 값")
+client = OpenAI(api_key="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")
 
 
 
@@ -204,6 +204,7 @@ def run_analysis(source, SPEED):
     lean_writer = cv2.VideoWriter("lean_highlight_raw.mp4", fourcc, highlight_fps, highlight_size)
     vo_writer = cv2.VideoWriter("vo_highlight_raw.mp4", fourcc, highlight_fps, highlight_size)
     thigh_writer = cv2.VideoWriter("thigh_highlight_raw.mp4", fourcc, highlight_fps, highlight_size)
+    full_writer = None
 
     print("fps:", fps, "highlight_fps:", highlight_fps, "highlight_size:", highlight_size)
     print("arm_writer:", arm_writer.isOpened())
@@ -217,8 +218,22 @@ def run_analysis(source, SPEED):
     for r in results:
 
         frame = r.plot()
+
         if frame is None or frame.size == 0:
             continue
+
+        # 🔥 writer 생성 (한 번만)
+        if full_writer is None:
+            h, w = frame.shape[:2]
+            full_writer = cv2.VideoWriter(
+                "full_with_skeleton_raw.mp4",
+                cv2.VideoWriter_fourcc(*"mp4v"),
+                highlight_fps,  # 🔥 속도 핵심
+                (w, h)
+            )
+
+        # 🔥 저장
+        full_writer.write(frame)
 
         print(frame.shape)
 
@@ -407,7 +422,10 @@ def run_analysis(source, SPEED):
     lean_writer.release()
     vo_writer.release()
     thigh_writer.release()
+    if full_writer:
+        full_writer.release()
 
+    convert_to_h264("full_with_skeleton_raw.mp4", "full_with_skeleton.mp4")
     convert_to_h264("arm_highlight_raw.mp4", "arm_highlight.mp4")
     convert_to_h264("knee_highlight_raw.mp4", "knee_highlight.mp4")
     convert_to_h264("lean_highlight_raw.mp4", "lean_highlight.mp4")
@@ -505,7 +523,7 @@ def run_analysis(source, SPEED):
     record_id = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
 
     full_video_url = upload_file_and_get_url(
-        source,
+        "full_with_skeleton.mp4",
         f"videos/{user_id}/{record_id}/full.mp4"
     )
 
@@ -599,3 +617,4 @@ def run_analysis(source, SPEED):
     }
 
     return result
+
