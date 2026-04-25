@@ -177,6 +177,10 @@ def crop_box_and_resize(frame, box, output_size=(480, 640)):
     x2 = max(x1 + 1, min(w, x2))
     y2 = max(y1 + 1, min(h, y2))
 
+    y2 = min(h, y2 + 150)
+
+    x2 = min(w, x2 + 120)
+
     crop = frame[y1:y2, x1:x2]
 
     if crop.size == 0:
@@ -189,9 +193,9 @@ def get_part_boxes(frame, shoulder, elbow, wrist, hip, knee, ankle):
 
     return {
         "arm": get_box_from_points([shoulder, elbow, wrist], w, h, pad=50, min_size=180),
-        "knee": get_box_from_points([hip, knee, ankle], w, h, pad=60, min_size=220),
+        "knee": get_box_from_points([hip, knee, ankle], w, h, pad=200, min_size=400),
         "lean": get_box_from_points([shoulder, hip, knee], w, h, pad=70, min_size=260),
-        "vo": get_box_from_points([shoulder, hip, knee, ankle], w, h, pad=80, min_size=320),
+        "vo": get_box_from_points([shoulder, hip, knee, ankle], w, h, pad=120, min_size=400),
         "thigh": get_box_from_points([hip, knee], w, h, pad=60, min_size=180),
     }
 
