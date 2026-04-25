@@ -6,8 +6,8 @@ def show_report(root, data, SPEED, VO_MIN, VO_MAX, THIGH_MIN, THIGH_MAX):
     avg_knee = data["summary"]["knee"]["average"]
     avg_arm = data["summary"]["arm"]["average"]
 
-    avg_vo = 0
-    avg_thigh = 0
+    avg_vo = data["summary"]["vo"]["average"]
+    avg_thigh = data["summary"]["thigh"]["average"]
 
     report=Toplevel(root)
     report.title("러닝 기록지")
