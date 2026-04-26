@@ -193,7 +193,7 @@ def get_part_boxes(frame, shoulder, elbow, wrist, hip, knee, ankle):
 
     return {
         "arm": get_box_from_points([shoulder, elbow, wrist], w, h, pad=50, min_size=180),
-        "knee": get_box_from_points([hip, knee, ankle], w, h, pad=200, min_size=400),
+        "knee": get_box_from_points([hip, knee, ankle], w, h, pad=120, min_size=400),
         "lean": get_box_from_points([shoulder, hip, knee], w, h, pad=70, min_size=260),
         "vo": get_box_from_points([shoulder, hip, knee, ankle], w, h, pad=120, min_size=400),
         "thigh": get_box_from_points([hip, knee], w, h, pad=60, min_size=180),
@@ -277,17 +277,22 @@ def run_analysis(source, SPEED):
 
     print("fps:", fps, "highlight_fps:", highlight_fps, "highlight_size:", highlight_size)
 
+    cap = cv2.VideoCapture(source)
 
-    results=model(source,stream=True)
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
 
-    for r in results:
+        results = model(frame)
+        r = results[0]
 
         frame = r.plot()
 
         if frame is None or frame.size == 0:
             continue
 
-        all_frames.append(frame.copy())
+
 
         # 🔥 writer 생성 (한 번만)
         if full_writer is None:
@@ -300,7 +305,6 @@ def run_analysis(source, SPEED):
             )
 
         # 🔥 저장
-        full_writer.write(frame)
 
         print(frame.shape)
 
@@ -529,6 +533,9 @@ def run_analysis(source, SPEED):
 
         if tail_frames>0: best_clip.append(frame.copy()); tail_frames-=1
         if knee_tail_frames>0: best_knee_clip.append(frame.copy()); knee_tail_frames-=1
+
+        all_frames.append(frame.copy())
+        full_writer.write(frame)
 
         cv2.imshow("Running Coach",frame)
         if cv2.waitKey(1)&0xFF==ord('q'): break
