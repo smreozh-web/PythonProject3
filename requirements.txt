@@ -5,3 +5,4 @@ numpy
 imageio-ffmpeg
 openai
 firebase-admin
+gunicorn
